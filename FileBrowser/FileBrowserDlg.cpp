@@ -1,7 +1,3 @@
-
-// FileBrowserDlg.cpp : implementation file
-//
-
 #include "pch.h"
 #include "framework.h"
 #include "FileBrowser.h"
@@ -11,11 +7,6 @@
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
-
-
-// CFileBrowserDlg dialog
-
-
 
 CFileBrowserDlg::CFileBrowserDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_FILEBROWSER_DIALOG, pParent)
@@ -28,7 +19,8 @@ void CFileBrowserDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Text(pDX, IDC_EDIT_FILE_PATH, m_strFilePath);
-	DDX_Control(pDX, IDC_LIST_FILE, m_ctlListFile);
+	DDX_Control(pDX, IDC_LIST_FILE, m_ListFile);
+	DDX_Control(pDX, IDC_TREE_FILE, m_TreeFile);
 }
 
 BEGIN_MESSAGE_MAP(CFileBrowserDlg, CDialogEx)
@@ -37,6 +29,8 @@ BEGIN_MESSAGE_MAP(CFileBrowserDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_GO, &CFileBrowserDlg::OnBnClickedButtonGo)
 	ON_COMMAND(IDOK, &CFileBrowserDlg::OnIdok)
 	ON_NOTIFY(NM_DBLCLK, IDC_LIST_FILE, &CFileBrowserDlg::OnDblclkListFile)
+	ON_NOTIFY(TVN_SELCHANGED, IDC_TREE_FILE, &CFileBrowserDlg::OnSelchangedTreeFile)
+	ON_NOTIFY(TVN_ITEMEXPANDED, IDC_TREE_FILE, &CFileBrowserDlg::OnItemexpandedTreeFile)
 END_MESSAGE_MAP()
 
 
@@ -51,19 +45,34 @@ BOOL CFileBrowserDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// Set big icon
 	SetIcon(m_hIcon, FALSE);		// Set small icon
 
-	// TODO: Add extra initialization here
 	char* aryCols[] = { "名称", "修改日期", "类型", "大小" };
 	int nCnt = sizeof(aryCols) / sizeof(char*);
 	// 添加列名
 	for (int i = 0; i < nCnt; i++)
 	{
-		m_ctlListFile.InsertColumn(i, aryCols[i], 0, 200);
+		m_ListFile.InsertColumn(i, aryCols[i], 0, 200);
 	}
-	// 设置样式
-	m_ctlListFile.SetExtendedStyle(
-		LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | m_ctlListFile.GetExtendedStyle());
+	// 设置列表控件样式
+	m_ListFile.SetExtendedStyle(
+		LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | m_ListFile.GetExtendedStyle());
 
-	ShowDriverList();
+	// 获取所有盘符显示
+	list<CString> ltDriveList = GetDriveList();
+	int i = 0;
+	for (CString strDrive : ltDriveList)
+	{
+		// 插入到列表控件
+		m_ListFile.InsertItem(i++, strDrive);
+		// 插入到树控件
+		HTREEITEM hTreeItem = m_TreeFile.InsertItem(strDrive, NULL, TVI_LAST);
+
+		CFileFind fileFind;
+		if (fileFind.FindFile(strDrive + "\\*.*"))
+		{
+			// 占位符，使之显示+号
+			m_TreeFile.InsertItem("", hTreeItem);
+		}
+	}
 
 	return TRUE;  // return TRUE  unless you set the focus to a control
 }
@@ -104,6 +113,25 @@ HCURSOR CFileBrowserDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+// 获取所有盘符
+list<CString> CFileBrowserDlg::GetDriveList()
+{
+	list<CString> lt;
+
+	char szBuf[MAXBYTE] = { 0 };
+	::GetLogicalDriveStrings(MAXBYTE, szBuf);
+
+	char* p = szBuf;
+	while (*p != 0)
+	{
+		p[2] = 0;	// 去掉\ 
+		lt.push_back(p);
+		p += 4;
+	}
+
+	return lt;
+}
+
 BOOL CFileBrowserDlg::ShowFileList(CString strFilePath)
 {
 	BOOL bFind = FALSE;
@@ -111,7 +139,6 @@ BOOL CFileBrowserDlg::ShowFileList(CString strFilePath)
 
 	if (strFilePath == "")
 	{
-		ShowDriverList();
 		return TRUE;
 	}
 
@@ -130,7 +157,7 @@ BOOL CFileBrowserDlg::ShowFileList(CString strFilePath)
 	}
 
 	// 清空列表
-	m_ctlListFile.DeleteAllItems();
+	m_ListFile.DeleteAllItems();
 
 	int i = 0;
 	char szBuf[MAXBYTE] = { 0 };
@@ -142,21 +169,20 @@ BOOL CFileBrowserDlg::ShowFileList(CString strFilePath)
 			continue;
 		}
 
-		m_ctlListFile.InsertItem(i, NULL);
-		m_ctlListFile.SetItemText(i, 0, fileFind.GetFileName());
+		m_ListFile.InsertItem(i, NULL);
+		m_ListFile.SetItemText(i, 0, fileFind.GetFileName());
 		CTime time;
 		fileFind.GetLastWriteTime(time);
-		m_ctlListFile.SetItemText(i, 1, time.Format("%Y/%m/%d %H:%M"));
+		m_ListFile.SetItemText(i, 1, time.Format("%Y/%m/%d %H:%M"));
 		if (fileFind.IsDirectory())
 		{
-			m_ctlListFile.SetItemText(i, 2, "文件夹");
+			m_ListFile.SetItemText(i, 2, "文件夹");
 		}
 		else
 		{
-
 		}
 		sprintf(szBuf, "%u KB", fileFind.GetLength() / 1024.0);
-		m_ctlListFile.SetItemText(i, 3, szBuf);
+		m_ListFile.SetItemText(i, 3, szBuf);
 
 		i++;
 	}
@@ -164,21 +190,15 @@ BOOL CFileBrowserDlg::ShowFileList(CString strFilePath)
 	return TRUE;
 }
 
-void CFileBrowserDlg::ShowDriverList()
+CString CFileBrowserDlg::GetFilePath(HTREEITEM hItem)
 {
-	m_ctlListFile.DeleteAllItems();
-
-	// 获取所有盘符
-	char szBuf[MAXBYTE] = { 0 };
-	GetLogicalDriveStrings(MAXBYTE, szBuf);
-
-	char* p = szBuf;
-	int nCnt = 0;
-	while (*p != 0)
+	CString strFilePath;
+	while (hItem)
 	{
-		m_ctlListFile.InsertItem(nCnt++, p);
-		p += 4;
+		strFilePath.Insert(0, m_TreeFile.GetItemText(hItem) + "\\");
+		hItem = m_TreeFile.GetParentItem(hItem);
 	}
+	return strFilePath;
 }
 
 
@@ -195,21 +215,23 @@ void CFileBrowserDlg::OnBnClickedButtonGo()
 
 void CFileBrowserDlg::OnIdok()
 {
-	// TODO: Add your command handler code here
 }
 
 
 void CFileBrowserDlg::OnDblclkListFile(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
-	// TODO: Add your control notification handler code here
+	*pResult = 0;
+
+	UpdateData(TRUE);
 
 	// 获取选中的文件
-	CString strFile = m_ctlListFile.GetItemText(pNMItemActivate->iItem, 0);
+	CString strFile = m_ListFile.GetItemText(pNMItemActivate->iItem, 0);
 
 	if (strFile == "..")
 	{
 		int i = m_strFilePath.GetLength() - 1;
+		i--;
 		while (m_strFilePath[i] != '\\')
 		{
 			i--;
@@ -254,6 +276,62 @@ void CFileBrowserDlg::OnDblclkListFile(NMHDR* pNMHDR, LRESULT* pResult)
 			UpdateData(FALSE);
 		}
 	}
+}
 
+// 切换树控件item
+void CFileBrowserDlg::OnSelchangedTreeFile(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMTREEVIEW pNMTreeView = reinterpret_cast<LPNMTREEVIEW>(pNMHDR);
 	*pResult = 0;
+
+	m_strFilePath = GetFilePath(pNMTreeView->itemNew.hItem);
+	ShowFileList(m_strFilePath);
+
+	UpdateData(FALSE);
+}
+
+// 展开树控件item
+void CFileBrowserDlg::OnItemexpandedTreeFile(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMTREEVIEW pNMTreeView = reinterpret_cast<LPNMTREEVIEW>(pNMHDR);
+	*pResult = 0;
+
+	// 收缩合并
+	if (pNMTreeView->action == TVE_COLLAPSE)
+	{
+		return;
+	}
+
+	HTREEITEM hParentItem = pNMTreeView->itemNew.hItem;
+
+	// 清除所有子项
+	HTREEITEM hItem;
+	while (hItem = m_TreeFile.GetChildItem(hParentItem))
+	{
+		m_TreeFile.DeleteItem(hItem);
+	}
+
+	// 获取路径
+	CString strFilePath = GetFilePath(hParentItem);
+
+	// 重新添加
+	CFileFind fileFind;
+	bool bFind = fileFind.FindFile(strFilePath + "*.*");
+	while (bFind)
+	{
+		bFind = fileFind.FindNextFile();
+		CString strFileName = fileFind.GetFileName();
+
+		if (strFileName == "." || strFileName == "..")
+		{
+			continue;
+		}
+
+		HTREEITEM h = m_TreeFile.InsertItem(strFileName, hParentItem);
+		CFileFind f;
+		if (f.FindFile(strFilePath + strFileName + "\\*.*"))
+		{
+			m_TreeFile.InsertItem("", h);
+		}
+	}
 }

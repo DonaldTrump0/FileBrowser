@@ -8,6 +8,7 @@
 #define IDC_EDIT_FILE_PATH              1001
 #define IDC_BUTTON_GO                   1002
 #define IDC_TREE1                       1003
+#define IDC_TREE_FILE                   1003
 
 // Next default values for new objects
 // 
